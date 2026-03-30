@@ -631,3 +631,98 @@ export class BootScene extends Phaser.Scene {
 - Always draw something in `create()` before any `async` call — the `await` suspends execution, leaving the canvas blank if nothing was rendered first.
 - `loadingStart()` must be called before `loadingStop()`. Calling only `loadingStop()` is a protocol violation and may cause the CrazyGames SDK to suppress ads or flag the game.
 - Fade out the camera before `this.scene.start()` to avoid hard visual cuts between boot and preload.
+
+---
+
+## 13. Load Scene Never Shows — Progress Bar Stuck at Zero
+
+### LOAD_BAR_INVISIBLE — Loading bar does not animate; textures generated before first frame renders
+
+**Symptom:** The loading / preload screen either flashes for one frame and immediately jumps to the menu, or sits blank with an empty progress bar that never moves.
+
+**Cause — two bugs in `PreloadScene`:**
+
+**Bug 1 — Texture generation inside `preload()`**
+
+`preload()` in Phaser is designed for queuing network file loads. Calling `this.make.graphics()` and `g.generateTexture()` inside `preload()` works (the calls are synchronous), but they all execute before a single frame is rendered. The loading screen never appears — the player sees a blank canvas that immediately transitions.
+
+```js
+// ❌ All 11 textures generated synchronously before the first frame
+preload() {
+  this.createLoadingScreen();   // screen drawn but not yet painted
+  this.generateTextures();      // all textures done instantly
+}
+```
+
+**Bug 2 — Progress bar wired to `this.load.on('progress')` which never fires**
+
+The progress event only fires for network file loads (`this.load.image()`, `this.load.audio()`, etc.). Since every texture is procedural, `load.on('progress')` is never called and the bar stays at 0%.
+
+```js
+// ❌ This callback never executes — no files are being loaded
+this.load.on('progress', (value) => {
+  barFill.fillRect(...);           // never runs
+  loadText.setText(`LOADING... ${Math.floor(value * 100)}%`);
+});
+```
+
+**Fix — move generation into `create()`, driven by a step timer:**
+
+```js
+// ✅ preload() is intentionally empty — all assets are procedural
+preload() {}
+
+create() {
+  // Draw the loading screen (renders immediately on first frame)
+  this._buildLoadingScreen();
+
+  // Build an ordered queue of [label, generatorFn] pairs
+  this._queue = this._buildQueue();   // 11 steps
+  this._stepIdx = 0;
+
+  // Execute one step every 32 ms — bar fills visibly as each texture is baked
+  this._stepTimer = this.time.addEvent({
+    delay: 32,
+    callback: this._tick,
+    callbackScope: this,
+    loop: true,
+  });
+}
+
+_tick() {
+  const [label, fn] = this._queue[this._stepIdx];
+  fn();                                        // generate one texture
+  this._stepIdx++;
+  this._setProgress(this._stepIdx / this._queue.length, label);
+
+  if (this._stepIdx >= this._queue.length) {
+    this._stepTimer.remove();
+    this.time.delayedCall(300, () => this._complete());
+  }
+}
+
+_complete() {
+  this._setProgress(1, 'READY!');
+  window.CrazyGames?.SDK?.game.loadingStop();
+  this.time.delayedCall(350, () => {
+    this.cameras.main.fadeOut(300, 0, 0, 0);
+    this.time.delayedCall(300, () => this.scene.start(SCENES.MENU));
+  });
+}
+```
+
+**Step queue — what the bar fills through:**
+
+| Step | Label | Texture key |
+|------|-------|-------------|
+| 1–6  | `BLOCK 1/6` … `BLOCK 6/6` | `block_0` … `block_5` |
+| 7    | `PARTICLE FX` | `particle` |
+| 8    | `BACKGROUND` | `background` |
+| 9    | `GRID` | `grid` |
+| 10   | `BUTTONS` | `button` |
+| 11   | `GLOW FX` | `glow` |
+
+**Rules:**
+- Never call `generateTexture()` inside `preload()` if you want a visible loading screen — `preload()` runs before the renderer has produced its first frame.
+- `this.load.on('progress')` only fires for assets queued via `this.load.*` methods. For procedural generation, manage your own progress counter.
+- The step timer `delay: 32` (~30 fps cadence) gives the renderer time to repaint between steps so the bar appears to fill smoothly.
