@@ -547,3 +547,87 @@ autoCenter: Phaser.Scale.CENTER_BOTH
 
 // ❌ mixing both — double-offset on every resize
 ```
+
+---
+
+## 12. BootScene Shows Blank Screen at Startup
+
+### BOOT_BLANK_SCREEN — No visual during SDK initialisation; loadingStart never called
+
+**Symptom:** The game displays a completely black/blank screen for an unpredictable amount of time at startup before the preloader appears. On slow connections or when the CrazyGames SDK takes time to respond, the blank period can last several seconds.
+
+**Cause — three problems in the original `BootScene`:**
+
+1. **No visual content in `create()`** — the scene started, called `initSDK()`, and showed nothing while awaiting the SDK promise.
+2. **`SDK.game.loadingStart()` was never called** — only `loadingStop()` existed (in `PreloadScene`). CrazyGames requires a matching `loadingStart` before `loadingStop` or the SDK enters an undefined state.
+3. **No fade transition** — the scene switched to `PreloadScene` instantly with no camera fade, producing a harsh cut.
+
+```js
+// ❌ Original — blank screen, missing loadingStart, no fade
+export class BootScene extends Phaser.Scene {
+  create() {
+    this.initSDK();          // nothing drawn; screen is black
+  }
+  async initSDK() {
+    try {
+      if (window.CrazyGames?.SDK) {
+        await window.CrazyGames.SDK.init();
+        // loadingStart() never called ← bug
+      }
+    } catch (e) {}
+    this.scene.start(SCENES.PRELOAD);   // instant hard-cut ← no fade
+  }
+}
+```
+
+**Fix — `src/scenes/BootScene.js`:**
+
+```js
+import { SCENES, GAME_WIDTH, GAME_HEIGHT } from '../constants.js';
+
+export class BootScene extends Phaser.Scene {
+  constructor() { super({ key: SCENES.BOOT }); }
+
+  preload() { this.load.setBaseURL('./'); }
+
+  create() {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+
+    // 1. Show splash immediately — no blank frame
+    this.cameras.main.setBackgroundColor('#0a0a1a');
+    this.cameras.main.fadeIn(300, 0, 0, 0);
+
+    // background, title text, colour blocks, dot-pip animation …
+    // (see src/scenes/BootScene.js for full implementation)
+
+    // 2. SDK init with loadingStart + fade-out before handing off
+    this._boot();
+  }
+
+  async _boot() {
+    try {
+      if (window.CrazyGames?.SDK) {
+        await window.CrazyGames.SDK.init();
+        window.CrazyGames.SDK.game.loadingStart();  // ← required before loadingStop
+      }
+    } catch (_) {}
+    this.cameras.main.fadeOut(250, 0, 0, 0);
+    this.time.delayedCall(260, () => this.scene.start(SCENES.PRELOAD));
+  }
+}
+```
+
+**CrazyGames SDK call order (must be respected):**
+
+| Call | Scene | Purpose |
+|------|-------|---------|
+| `SDK.init()` | `BootScene._boot()` | Initialise SDK connection |
+| `SDK.game.loadingStart()` | `BootScene._boot()` after init | Signals asset loading has begun |
+| `SDK.game.loadingStop()` | `PreloadScene.create()` | Signals all assets are ready |
+| `SDK.game.gameplayStop()` | `GameOverScene.create()` | Signals active gameplay has ended |
+
+**Rules:**
+- Always draw something in `create()` before any `async` call — the `await` suspends execution, leaving the canvas blank if nothing was rendered first.
+- `loadingStart()` must be called before `loadingStop()`. Calling only `loadingStop()` is a protocol violation and may cause the CrazyGames SDK to suppress ads or flag the game.
+- Fade out the camera before `this.scene.start()` to avoid hard visual cuts between boot and preload.
