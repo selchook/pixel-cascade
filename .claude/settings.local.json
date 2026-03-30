@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/selc/Downloads/pixel-cascade -not -path */node_modules/* -type f -o -type d)"
+    ]
+  }
+}
