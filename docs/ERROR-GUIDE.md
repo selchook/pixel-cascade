@@ -340,19 +340,150 @@ createSoundToggle() {
 
 ---
 
-## 7. UI Not Centered on Web / Mobile
+## 7. UI Not Centered on Web / Mobile (Partial Fix — superseded by §11)
 
-### UI_NOT_CENTERED — Canvas drifts off-center on mobile browsers
+> ⚠️ This section describes a partial fix that did not fully resolve the issue on mobile. See **§11** for the definitive solution.
 
-**Symptom:** The game canvas is not centered — it appears offset (usually top-left) on mobile browsers and some desktop viewports.
+**Cause identified:** `#game-container` used `height: 100%` without `html` and `body` having explicit heights, causing the container to collapse on mobile.
 
-**Cause:** `#game-container` uses `height: 100%`, but `html` and `body` have no explicit height. Mobile browsers resolve percentage heights relative to the parent, so without `html { height: 100% }` and `body { height: 100% }`, the container collapses and Phaser's `CENTER_BOTH` has no reference point to center against.
+**Partial fix applied:** Added `html, body { width: 100%; height: 100%; }`. This was necessary but not sufficient.
 
-**Fix — `index.html`:**
+---
+
+## 8. All Game Scenes Off-Center (Flexbox / Phaser Conflict — superseded by §11)
+
+> ⚠️ This section describes a conflict that was fixed, but `CENTER_BOTH` itself was later found to be unreliable on mobile. See **§11** for the definitive solution.
+
+**Cause identified:** `display: flex` on `#game-container` conflicted with Phaser's `autoCenter: CENTER_BOTH` margin calculations, producing a double-offset.
+
+**Fix applied:** Removed `display: flex` from `#game-container`. This resolved the conflict but `CENTER_BOTH` still failed on some mobile browsers — see §11.
+
+---
+
+## 9. All Scene UI Off-Center (Missing cx / cy Anchors)
+
+### SCENE_UI_NOT_CENTERED — Content drifts from canvas center in every scene
+
+**Symptom:** Menu, Game Over, and loading scenes appear visually unbalanced — text and panels are skewed toward the top or sides rather than being distributed symmetrically around the canvas midpoint.
+
+**Root cause:** Scenes position every element with raw pixel values (e.g. `y = 140`, `y = 220`, `y = 458`) that have no explicit relationship to the canvas center. When `GAME_WIDTH` or `GAME_HEIGHT` changes, or when the canvas is scaled by Phaser's FIT mode and the browser zooms, all elements shift together but there is nothing in the code to guarantee they stay balanced around the center.
+
+**Rule:** Every scene must define `cx` and `cy` at the top of `create()` (or the UI-building method) and express every element position as `cx ± offsetX` / `cy ± offsetY`. This makes centering explicit and keeps layout correct regardless of canvas size.
+
+```js
+// ✅ Pattern — define once, use everywhere
+const cx = GAME_WIDTH / 2;   // 240  — horizontal center
+const cy = GAME_HEIGHT / 2;  // 320  — vertical center
+
+// All elements expressed relative to cx / cy:
+this.add.text(cx, cy - 162, 'TITLE', ...).setOrigin(0.5);  // above center
+this.add.text(cx, cy,       'PLAY',  ...).setOrigin(0.5);  // at center
+this.add.text(cx, cy + 75,  'MORE',  ...).setOrigin(0.5);  // below center
+```
+
+```js
+// ❌ Anti-pattern — hardcoded absolute values
+this.add.text(cx, 158, 'TITLE', ...).setOrigin(0.5);  // works only at GAME_HEIGHT=640
+this.add.text(cx, 320, 'PLAY',  ...).setOrigin(0.5);
+this.add.text(cx, 395, 'MORE',  ...).setOrigin(0.5);
+```
+
+**Fixes applied per scene:**
+
+| Scene | Problem | Fix |
+|-------|---------|-----|
+| `MenuScene` | No `cy`; all y values hardcoded | Added `cy`; replaced with `cy-205`, `cy-162`, `cy-120`, `cy-100`, `cy-80`, `cy`, `cy+75`, `cy+150` |
+| `GameOverScene` | No `cy`; content block 6 px below canvas center | Added `cy`; title → `cy-180`, panel → `cy-100`, buttons → `cy+138` / `cy+208` |
+| `PreloadScene` | No `cx`/`cy`; used ad-hoc `w/2`, `h*0.35`, `h*0.6` fractions | Added `cx = w/2`, `cy = h/2`; title → `cy-96`, bar → `cy+64`, label → `cy+99` |
+| `UIScene` | Already used `cx`/`cy` correctly | No change needed |
+| `GameScene` | HUD intentionally at top; grid placement intentional | No change (layout is by design) |
+
+**Footer / edge elements are exempt:** Elements intentionally pinned to the screen edge (version string, skip link, sound toggle) may continue using `GAME_HEIGHT - N` — they are not part of the centered content block.
+
+---
+
+## 10. Board Repuzzles on Every Level-Up
+
+### BOARD_REPUZZLE_ON_LEVELUP — Whole grid regenerated when advancing a level
+
+**Symptom:** When the player reaches the score target and the level advances, the entire board is destroyed and replaced with a fresh random grid — instead of continuing from the current board state.
+
+**Cause:** `GameScene.resetForNextLevel()` was doing three things it should not have done on level-up:
+1. Destroyed every existing sprite (`this.sprites[r][c].destroy()`)
+2. Called `this.initGrid()` — a full random re-fill of `this.grid`
+3. Recreated and drop-animated all tiles from above the grid
+
+```js
+// ❌ Old — wipes and regenerates the whole board on every level advance
+resetForNextLevel() {
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      if (this.sprites[r][c]) { this.sprites[r][c].destroy(); this.sprites[r][c] = null; }
+
+  this.initGrid();                   // ← generates fresh random grid
+
+  for (let r = 0; r < ROWS; r++)    // ← drops all new tiles in with animation
+    for (let c = 0; c < COLS; c++) { ... }
+
+  this.createTapsPips(gameState.getLevelData().moves);
+  this.updateHUD();
+  this.time.delayedCall((ROWS * COLS) * 12 + 300, () => { this.isProcessing = false; });
+}
+```
+
+**Fix — keep the board intact, only reset the HUD:**
+```js
+// ✅ Fixed — board continues unchanged; only move pips + HUD refresh
+resetForNextLevel() {
+  this.createTapsPips(gameState.getLevelData().moves);
+  this.updateHUD();
+  this.isProcessing = false;
+}
+```
+
+**Why this is correct:**
+- `gameState.nextLevel()` (called before this) already sets the new move count and saves progress — the grid data in `GameScene` is unaffected.
+- `this.grid` and `this.sprites` remain valid for the new level; the player continues clearing the same board.
+- Future `refill()` calls will use `gameState.getLevelData().colors` so any new tiles that drop in after clears will draw from the new level's color palette automatically.
+- `isProcessing` can be set synchronously (no drop animation delay needed).
+
+---
+
+## 11. Canvas Not Centered on Mobile / Web (Definitive Fix)
+
+### CANVAS_NOT_CENTERED_MOBILE — Canvas off-center despite previous fixes; persists on iOS Safari and Chrome Android
+
+**Symptom:** The game canvas renders correctly at the top-left or shifted corner on mobile browsers and some desktop browsers even after adding `html/body { height: 100% }` and removing flexbox from `#game-container`.
+
+**Root cause — Phaser `CENTER_BOTH` timing bug:**
+
+`Phaser.Scale.ScaleManager.updateCenter()` centers the canvas by calling `canvas.getBoundingClientRect()` to read the canvas's rendered dimensions, then computing:
+
+```js
+var offsetX = Math.floor((this.parentSize.width - width) / 2);
+var offsetY = Math.floor((this.parentSize.height - height) / 2);
+style.marginLeft = offsetX + 'px';
+style.marginTop  = offsetY + 'px';
+```
+
+On mobile browsers (iOS Safari, Chrome Android), `getBoundingClientRect()` can return `width: 0, height: 0` if called before the browser has completed its first layout pass. When that happens:
+
+```
+offsetX = (viewportWidth  - 0) / 2  →  canvas pushed right by half the viewport
+offsetY = (viewportHeight - 0) / 2  →  canvas pushed down by half the viewport
+```
+
+The canvas ends up in the bottom-right quadrant. Subsequent resize events may or may not re-trigger `updateCenter`, so the bad position can persist for the entire session.
+
+**Definitive fix — replace `CENTER_BOTH` with CSS `transform` centering:**
+
+CSS `transform: translate(-50%, -50%)` is evaluated by the browser's layout engine at paint time, after all elements are sized. It is immune to JavaScript timing issues and works identically on every browser.
+
+**`index.html`:**
 ```html
 <style>
   * { box-sizing: border-box; padding: 0; margin: 0; }
-  html, body {          /* ← ADD THIS BLOCK */
+  html, body {
     width: 100%;
     height: 100%;
   }
@@ -364,20 +495,55 @@ createSoundToggle() {
     -webkit-user-select: none;
     -ms-user-select: none;
   }
-  canvas { display: block; }
   #game-container {
     position: fixed;
     top: 0; left: 0;
-    width: 100%; height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  /* CSS centers the canvas — do not use Phaser autoCenter with this */
+  #game-container canvas {
+    display: block;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
   }
 </style>
+...
+<body>
+  <div id="game-container"></div>  <!-- no <canvas> element here; Phaser creates its own -->
+  <script src="src/main.js" type="module"></script>
+</body>
 ```
 
-**Why the combination works:**
-- `html, body { width/height: 100% }` gives the fixed container a real 100 vh/vw to reference.
-- Flexbox on `#game-container` handles centering at the CSS level.
-- Phaser's `Phaser.Scale.FIT` + `autoCenter: Phaser.Scale.CENTER_BOTH` handles centering at the canvas level.
-- Both layers are required — omitting either causes misalignment on certain mobile browsers (Safari iOS, Chrome Android).
+**`src/main.js`:**
+```js
+scale: {
+  mode: Phaser.Scale.FIT,
+  autoCenter: Phaser.Scale.NO_CENTER,  // ← CSS handles centering; Phaser must not write margins
+},
+```
+
+**Why each part is required:**
+
+| Part | Reason |
+|------|--------|
+| `autoCenter: NO_CENTER` | Prevents Phaser from writing `marginLeft`/`marginTop` which would override the CSS transform |
+| `position: absolute` on canvas | Removes the canvas from normal flow so `top/left` are relative to the fixed container |
+| `top: 50%; left: 50%` | Moves the canvas's top-left corner to the viewport center |
+| `transform: translate(-50%, -50%)` | Shifts the canvas back by half its own width and height, perfectly centering it |
+| No `<canvas>` in HTML | Phaser creates and appends its own canvas to `#game-container`; a pre-existing canvas element would be a second unused element also receiving the centering CSS |
+
+**What NOT to do:**
+
+```js
+// ❌ CENTER_BOTH — unreliable on mobile (getBoundingClientRect timing)
+autoCenter: Phaser.Scale.CENTER_BOTH
+
+// ❌ flexbox on parent — conflicts with Phaser's margin writes
+#game-container { display: flex; align-items: center; justify-content: center; }
+
+// ❌ mixing both — double-offset on every resize
+```

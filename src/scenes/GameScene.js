@@ -419,48 +419,42 @@ export class GameScene extends Phaser.Scene {
   }
 
   resetForNextLevel() {
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        if (this.sprites[r][c]) { this.sprites[r][c].destroy(); this.sprites[r][c] = null; }
-      }
-    }
-    this.initGrid();
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const colorIdx = this.grid[r][c];
-        const x = GRID_OFFSET_X + c * CELL_SIZE + CELL_SIZE / 2;
-        const y = GRID_OFFSET_Y + r * CELL_SIZE + CELL_SIZE / 2;
-        const key = `block_${colorIdx}`;
-        const img = this.textures.exists(key)
-          ? this.add.image(x, y - ROWS * CELL_SIZE, key)
-          : this.add.rectangle(x, y - ROWS * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2, FALLBACK_COLORS[colorIdx]);
-        img.setAlpha(0);
-        this.sprites[r][c] = img;
-        this.tweens.add({
-          targets: img, y, alpha: 1,
-          duration: 250, delay: (r * COLS + c) * 12, ease: 'Back.easeOut',
-        });
-      }
-    }
+    // Keep the existing board intact — do not regenerate or re-animate tiles.
+    // Only refresh the move pips and HUD for the new level, then resume input.
     this.createTapsPips(gameState.getLevelData().moves);
     this.updateHUD();
-    this.time.delayedCall((ROWS * COLS) * 12 + 300, () => { this.isProcessing = false; });
+    this.isProcessing = false;
   }
 
   showLevelBanner(msg, color, callback) {
-    const overlay = this.add.graphics().setDepth(20);
-    overlay.fillStyle(0x000000, 0.65);
-    overlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    const sub = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 52, 'LEVEL CLEAR!', {
-      fontFamily: '"Courier New", monospace', fontSize: '18px', color: '#88ffcc',
+    const cx = GAME_WIDTH / 2;
+    const bannerY = GAME_HEIGHT / 2;
+    const levelData = gameState.getLevelData();
+
+    const bg = this.add.graphics().setDepth(20);
+    bg.fillStyle(0x000022, 0.88);
+    bg.fillRect(cx - 160, bannerY - 34, 320, 68);
+    bg.lineStyle(2, 0x00ff88, 1);
+    bg.strokeRect(cx - 160, bannerY - 34, 320, 68);
+
+    const title = this.add.text(cx, bannerY - 14, msg, {
+      fontFamily: '"Courier New", monospace', fontSize: '28px', color,
+      stroke: '#000033', strokeThickness: 4,
     }).setOrigin(0.5).setDepth(21);
-    const t = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2, msg, {
-      fontFamily: '"Courier New", monospace', fontSize: '48px', color,
-      stroke: '#000033', strokeThickness: 5,
+
+    const sub = this.add.text(cx, bannerY + 16, `TARGET ${levelData ? levelData.target : ''}  MOVES ${levelData ? levelData.moves : ''}`, {
+      fontFamily: '"Courier New", monospace', fontSize: '12px', color: '#8888cc',
     }).setOrigin(0.5).setDepth(21);
-    this.time.delayedCall(1200, () => {
-      overlay.destroy(); sub.destroy(); t.destroy();
-      callback();
+
+    const items = [bg, title, sub];
+    items.forEach(o => o.setAlpha(0));
+    this.tweens.add({ targets: items, alpha: 1, duration: 180, ease: 'Power2' });
+
+    this.time.delayedCall(900, () => {
+      this.tweens.add({
+        targets: items, alpha: 0, duration: 220, ease: 'Power2',
+        onComplete: () => { items.forEach(o => o.destroy()); callback(); },
+      });
     });
   }
 

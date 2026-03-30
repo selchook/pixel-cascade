@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find /c/Users/selc/Downloads/pixel-cascade -not -path */node_modules/* -type f -o -type d)"
+      "Bash(find /c/Users/selc/Downloads/pixel-cascade -not -path */node_modules/* -type f -o -type d)",
+      "Bash(/c/Users/selc/Downloads/pixel-cascade/docs/ERROR-GUIDE.md:*)"
     ]
   }
 }

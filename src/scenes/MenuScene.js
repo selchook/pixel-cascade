@@ -99,16 +99,17 @@ export class MenuScene extends Phaser.Scene {
 
   createUI() {
     const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
 
     // Title glow effect
-    const glowText = this.add.text(cx, 160, 'PIXEL CASCADE', {
+    const glowText = this.add.text(cx, cy - 160, 'PIXEL CASCADE', {
       fontFamily: '"Courier New", monospace',
       fontSize: '38px',
       color: '#003366',
     }).setOrigin(0.5).setAlpha(0.5);
 
     // Main title
-    const title = this.add.text(cx, 158, 'PIXEL CASCADE', {
+    const title = this.add.text(cx, cy - 162, 'PIXEL CASCADE', {
       fontFamily: '"Courier New", monospace',
       fontSize: '38px',
       color: '#00ffff',
@@ -117,14 +118,14 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     // Subtitle
-    this.add.text(cx, 200, '[ MATCH & CLEAR ]', {
+    this.add.text(cx, cy - 120, '[ MATCH & CLEAR ]', {
       fontFamily: '"Courier New", monospace',
       fontSize: '14px',
       color: '#8888ff',
     }).setOrigin(0.5);
 
     // Decorative pixel art
-    this.createPixelDecoration(cx, 115);
+    this.createPixelDecoration(cx, cy - 205);
 
     // Title pulsing
     this.tweens.add({
@@ -140,24 +141,24 @@ export class MenuScene extends Phaser.Scene {
     // High score display
     const hsBox = this.add.graphics();
     hsBox.fillStyle(0x111133, 0.8);
-    hsBox.fillRect(cx - 110, 220, 220, 40);
+    hsBox.fillRect(cx - 110, cy - 100, 220, 40);
     hsBox.lineStyle(2, 0x3333aa, 1);
-    hsBox.strokeRect(cx - 110, 220, 220, 40);
+    hsBox.strokeRect(cx - 110, cy - 100, 220, 40);
 
-    this.add.text(cx - 50, 240, 'BEST:', {
+    this.add.text(cx - 50, cy - 80, 'BEST:', {
       fontFamily: '"Courier New", monospace',
       fontSize: '14px',
       color: '#8888ff',
     }).setOrigin(0.5);
 
-    this.add.text(cx + 30, 240, gameState.highScore.toString().padStart(6, '0'), {
+    this.add.text(cx + 30, cy - 80, gameState.highScore.toString().padStart(6, '0'), {
       fontFamily: '"Courier New", monospace',
       fontSize: '16px',
       color: '#ffff00',
     }).setOrigin(0.5);
 
     // Play button
-    this.createButton(cx, 320, 'PLAY GAME', () => {
+    this.createButton(cx, cy, 'PLAY GAME', () => {
       this.cameras.main.fadeOut(400, 0, 0, 0);
       this.time.delayedCall(400, () => {
         this.scene.start(SCENES.ONBOARDING);
@@ -166,7 +167,7 @@ export class MenuScene extends Phaser.Scene {
 
     // Continue button (if saved progress)
     if (gameState.savedLevel > 0) {
-      this.createButton(cx, 395, `CONTINUE (LVL ${gameState.savedLevel + 1})`, () => {
+      this.createButton(cx, cy + 75, `CONTINUE (LVL ${gameState.savedLevel + 1})`, () => {
         this.cameras.main.fadeOut(400, 0, 0, 0);
         this.time.delayedCall(400, () => {
           gameState.startGame(gameState.savedLevel);
@@ -176,7 +177,7 @@ export class MenuScene extends Phaser.Scene {
     }
 
     // How to play button
-    const btnY = gameState.savedLevel > 0 ? 470 : 395;
+    const btnY = gameState.savedLevel > 0 ? cy + 150 : cy + 75;
     this.createButton(cx, btnY, 'HOW TO PLAY', () => {
       this.cameras.main.fadeOut(400, 0, 0, 0);
       this.time.delayedCall(400, () => {

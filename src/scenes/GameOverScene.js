@@ -11,6 +11,7 @@ export class GameOverScene extends Phaser.Scene {
     this.cameras.main.fadeIn(600, 0, 0, 0);
 
     const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
 
     // Background
     const bg = this.add.graphics();
@@ -27,8 +28,8 @@ export class GameOverScene extends Phaser.Scene {
     const titleText  = isVictory ? 'VICTORY!' : 'GAME OVER';
     const titleColor = isVictory ? '#00ff88'  : '#ff4444';
 
-    // Title
-    const title = this.add.text(cx, 140, titleText, {
+    // Title — anchored above vertical center
+    const title = this.add.text(cx, cy - 180, titleText, {
       fontFamily: '"Courier New", monospace',
       fontSize: '44px',
       color: titleColor,
@@ -38,8 +39,8 @@ export class GameOverScene extends Phaser.Scene {
 
     this.tweens.add({ targets: title, alpha: 1, duration: 500, delay: 200 });
 
-    // Stats panel
-    const panelY = 220;
+    // Stats panel — centered on canvas
+    const panelY = cy - 100;
     const panel = this.add.graphics();
     panel.fillStyle(0x111133, 0.92);
     panel.fillRect(cx - 155, panelY, 310, 190);
@@ -81,8 +82,8 @@ export class GameOverScene extends Phaser.Scene {
     // Animate score count-up
     this.countUp(scoreDisp, gameState.score, 1200);
 
-    // Buttons
-    const retryBtn = this.add.text(cx, 458, '[ PLAY AGAIN ]', {
+    // Buttons — anchored below vertical center
+    const retryBtn = this.add.text(cx, cy + 138, '[ PLAY AGAIN ]', {
       fontFamily: '"Courier New", monospace',
       fontSize: '24px',
       color: '#00ff88',
@@ -97,7 +98,7 @@ export class GameOverScene extends Phaser.Scene {
       this.time.delayedCall(400, () => this.scene.start(SCENES.GAME));
     });
 
-    const menuBtn = this.add.text(cx, 528, '[ MAIN MENU ]', {
+    const menuBtn = this.add.text(cx, cy + 208, '[ MAIN MENU ]', {
       fontFamily: '"Courier New", monospace',
       fontSize: '20px',
       color: '#8888ff',

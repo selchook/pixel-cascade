@@ -20,14 +20,16 @@ export class PreloadScene extends Phaser.Scene {
   createLoadingScreen() {
     const w = GAME_WIDTH;
     const h = GAME_HEIGHT;
+    const cx = w / 2;
+    const cy = h / 2;
 
     // Background
     const bg = this.add.graphics();
     bg.fillGradientStyle(0x0a0a1a, 0x0a0a1a, 0x1a0a2e, 0x1a0a2e, 1);
     bg.fillRect(0, 0, w, h);
 
-    // Pixel art title
-    const title = this.add.text(w / 2, h * 0.35, 'PIXEL CASCADE', {
+    // Pixel art title — above vertical center
+    const title = this.add.text(cx, cy - 96, 'PIXEL CASCADE', {
       fontFamily: '"Courier New", monospace',
       fontSize: '36px',
       color: '#00ffff',
@@ -47,18 +49,21 @@ export class PreloadScene extends Phaser.Scene {
       ease: 'Sine.easeInOut'
     });
 
-    // Loading bar background
+    // Loading bar background — below vertical center
+    const barX = cx - w * 0.3;
+    const barW = w * 0.6;
+    const barY = cy + 64;
     const barBg = this.add.graphics();
     barBg.fillStyle(0x222244, 1);
-    barBg.fillRect(w * 0.2, h * 0.6, w * 0.6, 20);
+    barBg.fillRect(barX, barY, barW, 20);
     barBg.lineStyle(2, 0x4444aa, 1);
-    barBg.strokeRect(w * 0.2, h * 0.6, w * 0.6, 20);
+    barBg.strokeRect(barX, barY, barW, 20);
 
     // Loading bar fill
     const barFill = this.add.graphics();
 
     // Loading text
-    const loadText = this.add.text(w / 2, h * 0.6 + 35, 'LOADING...', {
+    const loadText = this.add.text(cx, barY + 35, 'LOADING...', {
       fontFamily: '"Courier New", monospace',
       fontSize: '14px',
       color: '#8888ff'
@@ -68,7 +73,7 @@ export class PreloadScene extends Phaser.Scene {
     this.load.on('progress', (value) => {
       barFill.clear();
       barFill.fillStyle(0x00ffff, 1);
-      barFill.fillRect(w * 0.2 + 2, h * 0.6 + 2, (w * 0.6 - 4) * value, 16);
+      barFill.fillRect(barX + 2, barY + 2, (barW - 4) * value, 16);
       loadText.setText(`LOADING... ${Math.floor(value * 100)}%`);
     });
   }
