@@ -1,4 +1,4 @@
-import { STORAGE_KEY, LEVELS } from './constants.js';
+import { STORAGE_KEY, getLevelConfig } from './constants.js';
 
 class GameState {
   constructor() {
@@ -16,6 +16,7 @@ class GameState {
     this.isGameOver = false;
     this.isVictory = false;
     this.lastPoints = 0;
+    this.tetrominosThisLevel = 0;
   }
 
   load() {
@@ -58,7 +59,12 @@ class GameState {
   startGame(level = 0) {
     this.reset();
     this.level = level;
-    this.moves = LEVELS[level].moves;
+    this.moves = getLevelConfig(level).moves;
+    this.tetrominosThisLevel = 0;
+  }
+
+  recordTetromino() {
+    this.tetrominosThisLevel++;
   }
 
   addScore(cells, combo) {
@@ -84,7 +90,10 @@ class GameState {
   }
 
   checkLevelComplete() {
-    return this.score >= LEVELS[this.level].target;
+    const lvl = getLevelConfig(this.level);
+    if (this.score < lvl.target) return false;
+    if (lvl.tetrominosRequired && this.tetrominosThisLevel < lvl.tetrominosRequired) return false;
+    return true;
   }
 
   checkGameOver() {
@@ -93,24 +102,28 @@ class GameState {
 
   nextLevel() {
     this.level++;
-    if (this.level >= LEVELS.length) {
-      this.level = LEVELS.length - 1;
-      return false;
-    }
-    this.moves = LEVELS[this.level].moves;
+    this.moves = getLevelConfig(this.level).moves;
     this.combo = 0;
+    this.tetrominosThisLevel = 0;
     this.savedLevel = this.level;
     this.save();
     return true;
   }
 
   getLevelData() {
-    return LEVELS[this.level];
+    return getLevelConfig(this.level);
   }
 
   getProgress() {
-    const lvl = LEVELS[this.level];
+    const lvl = getLevelConfig(this.level);
     return Math.min(1, this.score / lvl.target);
+  }
+
+  // Returns 0–1 progress toward the tetromino requirement (1 if no requirement).
+  getTetrominoProgress() {
+    const req = getLevelConfig(this.level).tetrominosRequired || 0;
+    if (!req) return 1;
+    return Math.min(1, this.tetrominosThisLevel / req);
   }
 
   toggleMusic() {

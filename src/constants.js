@@ -62,3 +62,21 @@ export const LEVELS = [
   { moves: 15, target: 13500, colors: 6 },
   { moves: 14, target: 17000, colors: 6 },
 ];
+
+// Returns config for any level index, generating infinite levels beyond the preset 10.
+// After level 10 (index >= 10) each level also requires a minimum number of Tetris Blasts.
+export function getLevelConfig(levelIndex) {
+  if (levelIndex < LEVELS.length) return LEVELS[levelIndex];
+
+  // How many levels past the last preset (index 9)
+  const excess = levelIndex - (LEVELS.length - 1);
+  const base   = LEVELS[LEVELS.length - 1]; // { moves: 14, target: 17000, colors: 6 }
+
+  return {
+    moves:              Math.max(10, base.moves - Math.floor(excess / 4)),
+    target:             Math.round(base.target * Math.pow(1.3, excess)),
+    colors:             6,
+    // Tetromino-blast requirement grows slowly: 1 at level 11, +1 every 3 levels, cap 10
+    tetrominosRequired: Math.min(10, 1 + Math.floor((excess - 1) / 3)),
+  };
+}

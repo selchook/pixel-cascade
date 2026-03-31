@@ -108,16 +108,97 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  initGrid() {
-    const numColors = (gameState.getLevelData() || {}).colors || 4;
-    this.grid = [];
+  // ─── Board generation helpers ─────────────────────────────────────────────
+
+  // Probability (0–0.75) that a cell rerolls its color when it would match a neighbor.
+  // Higher = clusters are rarer = combos harder to spot.
+  getColorBias() {
+    const lvl = gameState.level;
+    if (lvl < 5)  return 0.00;
+    if (lvl < 10) return 0.30;
+    if (lvl < 15) return 0.50;
+    if (lvl < 20) return 0.65;
+    return 0.75;
+  }
+
+  // Pick a color for (r,c), biased to avoid colors already present in neighbors.
+  pickColor(r, c, numColors, bias) {
+    let color = Phaser.Math.Between(0, numColors - 1);
+    if (bias <= 0) return color;
+    const neighborColors = new Set();
+    [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr,dc]) => {
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS &&
+          this.grid[nr] && this.grid[nr][nc] !== undefined && this.grid[nr][nc] !== -1) {
+        neighborColors.add(this.grid[nr][nc]);
+      }
+    });
+    if (neighborColors.has(color) && Math.random() < bias) {
+      const alts = [];
+      for (let i = 0; i < numColors; i++) { if (!neighborColors.has(i)) alts.push(i); }
+      if (alts.length > 0) color = alts[Math.floor(Math.random() * alts.length)];
+    }
+    return color;
+  }
+
+  // Returns true if the current grid has at least one group of >= MIN_MATCH adjacent same-color cells.
+  hasAnyValidGroup() {
+    const visited = new Set();
     for (let r = 0; r < ROWS; r++) {
-      this.grid[r] = [];
       for (let c = 0; c < COLS; c++) {
-        this.grid[r][c] = Phaser.Math.Between(0, numColors - 1);
+        if (this.grid[r][c] < 0) continue;
+        const key = `${r},${c}`;
+        if (visited.has(key)) continue;
+        const group = this.findGroup(r, c);
+        group.forEach(([gr,gc]) => visited.add(`${gr},${gc}`));
+        if (group.length >= MIN_MATCH) return true;
       }
     }
+    return false;
+  }
+
+  // Last-resort: force 3 horizontally adjacent cells to the same color.
+  // Destroys & respawns sprites for any cells that already had one.
+  forceGuaranteeMatch(numColors) {
+    const color = Phaser.Math.Between(0, numColors - 1);
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c <= COLS - MIN_MATCH; c++) {
+        for (let i = 0; i < MIN_MATCH; i++) {
+          this.grid[r][c + i] = color;
+          if (this.sprites && this.sprites[r] && this.sprites[r][c + i]) {
+            this.sprites[r][c + i].destroy();
+            this.sprites[r][c + i] = null;
+          }
+          if (this.sprites && this.sprites[r]) this.spawnSprite(r, c + i);
+        }
+        return;
+      }
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+
+  initGrid() {
+    const numColors = (gameState.getLevelData() || {}).colors || 4;
+    const bias = this.getColorBias();
     this.sprites = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+
+    let attempts = 0;
+    do {
+      this.grid = [];
+      for (let r = 0; r < ROWS; r++) {
+        this.grid[r] = [];
+        for (let c = 0; c < COLS; c++) {
+          this.grid[r][c] = this.pickColor(r, c, numColors, bias);
+        }
+      }
+    } while (!this.hasAnyValidGroup() && ++attempts < 20);
+
+    // Absolute safety net (sprites are all null here, createSprites handles them)
+    if (!this.hasAnyValidGroup()) {
+      const color = Phaser.Math.Between(0, numColors - 1);
+      this.grid[0][0] = this.grid[0][1] = this.grid[0][2] = color;
+    }
   }
 
   createSprites() {
@@ -229,6 +310,7 @@ export class GameScene extends Phaser.Scene {
   clearGroup(group, blast, callback) {
     // 2x score multiplier for tetromino shapes
     const points = gameState.addScore(group.length, blast ? 2 : 1);
+    if (blast) gameState.recordTetromino();
     this.showScorePopup(group, points, blast);
     this.updateHUD();
 
@@ -367,26 +449,44 @@ export class GameScene extends Phaser.Scene {
 
   refill(callback) {
     const numColors = (gameState.getLevelData() || {}).colors || 4;
-    let count = 0;
+    const bias = this.getColorBias();
+
+    // Step 1 — collect empty positions
+    const emptyCells = [];
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        if (this.grid[r][c] === -1) {
-          this.grid[r][c] = Phaser.Math.Between(0, numColors - 1);
-          const x = GRID_OFFSET_X + c * CELL_SIZE + CELL_SIZE / 2;
-          const y = GRID_OFFSET_Y + r * CELL_SIZE + CELL_SIZE / 2;
-          const key = `block_${this.grid[r][c]}`;
-          const img = this.textures.exists(key)
-            ? this.add.image(x, y - CELL_SIZE * 2, key)
-            : this.add.rectangle(x, y - CELL_SIZE * 2, CELL_SIZE - 2, CELL_SIZE - 2, FALLBACK_COLORS[this.grid[r][c]]);
-          img.setAlpha(0);
-          this.sprites[r][c] = img;
-          this.tweens.add({
-            targets: img, y, alpha: 1,
-            duration: 200, delay: count * 15, ease: 'Back.easeOut',
-          });
-          count++;
-        }
+        if (this.grid[r][c] === -1) emptyCells.push([r, c]);
       }
+    }
+
+    // Step 2 — assign colors with bias, retry until a valid group exists
+    let attempts = 0;
+    do {
+      for (const [r, c] of emptyCells) {
+        this.grid[r][c] = this.pickColor(r, c, numColors, bias);
+      }
+    } while (!this.hasAnyValidGroup() && ++attempts < 20);
+
+    // Step 3 — absolute fallback if still no valid group
+    if (!this.hasAnyValidGroup()) this.forceGuaranteeMatch(numColors);
+
+    // Step 4 — create fall-in sprites for every newly filled cell
+    let count = 0;
+    for (const [r, c] of emptyCells) {
+      if (this.sprites[r][c]) continue; // already handled by forceGuaranteeMatch
+      const x = GRID_OFFSET_X + c * CELL_SIZE + CELL_SIZE / 2;
+      const y = GRID_OFFSET_Y + r * CELL_SIZE + CELL_SIZE / 2;
+      const key = `block_${this.grid[r][c]}`;
+      const img = this.textures.exists(key)
+        ? this.add.image(x, y - CELL_SIZE * 2, key)
+        : this.add.rectangle(x, y - CELL_SIZE * 2, CELL_SIZE - 2, CELL_SIZE - 2, FALLBACK_COLORS[this.grid[r][c]]);
+      img.setAlpha(0);
+      this.sprites[r][c] = img;
+      this.tweens.add({
+        targets: img, y, alpha: 1,
+        duration: 200, delay: count * 15, ease: 'Back.easeOut',
+      });
+      count++;
     }
     this.time.delayedCall(count * 15 + 250, callback);
   }
@@ -399,15 +499,10 @@ export class GameScene extends Phaser.Scene {
     if (gameState.checkLevelComplete()) {
       this.isProcessing = true;
       this.time.delayedCall(600, () => {
-        const hasNext = gameState.nextLevel();
-        if (!hasNext) {
-          this.cameras.main.fadeOut(400, 0, 0, 0);
-          this.time.delayedCall(400, () => this.scene.start(SCENES.GAME_OVER));
-        } else {
-          this.showLevelBanner(`LEVEL ${gameState.level + 1}`, '#00ff88', () => {
-            this.resetForNextLevel();
-          });
-        }
+        gameState.nextLevel();
+        this.showLevelBanner(`LEVEL ${gameState.level + 1}`, '#00ff88', () => {
+          this.resetForNextLevel();
+        });
       });
     } else if (gameState.checkGameOver()) {
       gameState.isGameOver = true;
@@ -419,38 +514,105 @@ export class GameScene extends Phaser.Scene {
   }
 
   resetForNextLevel() {
-    // Keep the existing board intact — do not regenerate or re-animate tiles.
-    // Only refresh the move pips and HUD for the new level, then resume input.
-    this.createTapsPips(gameState.getLevelData().moves);
-    this.updateHUD();
-    this.isProcessing = false;
+    // Levels 1–10: keep existing board, just refresh HUD/pips.
+    // Level 11+: repuzzle the whole board with a wipe-and-refill animation.
+    if (gameState.level < 10) {
+      this.createTapsPips(gameState.getLevelData().moves);
+      this.updateHUD();
+      this.isProcessing = false;
+      return;
+    }
+
+    // Collect every live sprite before wiping
+    const oldSprites = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (this.sprites[r][c]) oldSprites.push(this.sprites[r][c]);
+        this.sprites[r][c] = null;
+      }
+    }
+
+    const rebuild = () => {
+      this.initGrid(); // fresh colors + bias, sprites reset to null-array inside
+      this.createSpritesAnimated(() => {
+        this.createTapsPips(gameState.getLevelData().moves);
+        this.updateHUD();
+        this.isProcessing = false;
+      });
+    };
+
+    if (oldSprites.length > 0) {
+      this.tweens.add({
+        targets: oldSprites,
+        alpha: 0, scaleX: 0.3, scaleY: 0.3,
+        duration: 200, ease: 'Back.easeIn',
+        onComplete: () => { oldSprites.forEach(s => s.destroy()); rebuild(); },
+      });
+    } else {
+      rebuild();
+    }
+  }
+
+  // Animates all grid cells falling in from above (used after a full board repuzzle).
+  createSpritesAnimated(callback) {
+    let count = 0;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (this.sprites[r][c] || this.grid[r][c] === -1) continue;
+        const x = GRID_OFFSET_X + c * CELL_SIZE + CELL_SIZE / 2;
+        const y = GRID_OFFSET_Y + r * CELL_SIZE + CELL_SIZE / 2;
+        const key = `block_${this.grid[r][c]}`;
+        const img = this.textures.exists(key)
+          ? this.add.image(x, y - CELL_SIZE * 2, key)
+          : this.add.rectangle(x, y - CELL_SIZE * 2, CELL_SIZE - 2, CELL_SIZE - 2, FALLBACK_COLORS[this.grid[r][c]]);
+        img.setAlpha(0);
+        this.sprites[r][c] = img;
+        this.tweens.add({
+          targets: img, y, alpha: 1,
+          duration: 200, delay: count * 12, ease: 'Back.easeOut',
+        });
+        count++;
+      }
+    }
+    if (callback) this.time.delayedCall(count * 12 + 260, callback);
   }
 
   showLevelBanner(msg, color, callback) {
     const cx = GAME_WIDTH / 2;
     const bannerY = GAME_HEIGHT / 2;
     const levelData = gameState.getLevelData();
+    const tetrominosReq = levelData ? (levelData.tetrominosRequired || 0) : 0;
+    const bannerH = tetrominosReq ? 88 : 68;
 
     const bg = this.add.graphics().setDepth(20);
     bg.fillStyle(0x000022, 0.88);
-    bg.fillRect(cx - 160, bannerY - 34, 320, 68);
-    bg.lineStyle(2, 0x00ff88, 1);
-    bg.strokeRect(cx - 160, bannerY - 34, 320, 68);
+    bg.fillRect(cx - 160, bannerY - 34, 320, bannerH);
+    bg.lineStyle(2, tetrominosReq ? 0xffdd00 : 0x00ff88, 1);
+    bg.strokeRect(cx - 160, bannerY - 34, 320, bannerH);
 
     const title = this.add.text(cx, bannerY - 14, msg, {
       fontFamily: '"Courier New", monospace', fontSize: '28px', color,
       stroke: '#000033', strokeThickness: 4,
     }).setOrigin(0.5).setDepth(21);
 
-    const sub = this.add.text(cx, bannerY + 16, `TARGET ${levelData ? levelData.target : ''}  MOVES ${levelData ? levelData.moves : ''}`, {
+    const sub = this.add.text(cx, bannerY + 16, `TARGET ${levelData ? levelData.target.toLocaleString() : ''}  MOVES ${levelData ? levelData.moves : ''}`, {
       fontFamily: '"Courier New", monospace', fontSize: '12px', color: '#8888cc',
     }).setOrigin(0.5).setDepth(21);
 
     const items = [bg, title, sub];
+
+    if (tetrominosReq) {
+      const blastLine = this.add.text(cx, bannerY + 38, `◆ NEED ${tetrominosReq} TETRIS BLAST${tetrominosReq > 1 ? 'S' : ''}`, {
+        fontFamily: '"Courier New", monospace', fontSize: '12px', color: '#ffdd00',
+        stroke: '#884400', strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(21);
+      items.push(blastLine);
+    }
+
     items.forEach(o => o.setAlpha(0));
     this.tweens.add({ targets: items, alpha: 1, duration: 180, ease: 'Power2' });
 
-    this.time.delayedCall(900, () => {
+    this.time.delayedCall(1200, () => {
       this.tweens.add({
         targets: items, alpha: 0, duration: 220, ease: 'Power2',
         onComplete: () => { items.forEach(o => o.destroy()); callback(); },
@@ -490,10 +652,20 @@ export class GameScene extends Phaser.Scene {
     this.tapsPips = this.add.graphics();
     this.createTapsPips(gameState.getLevelData().moves);
 
-    // Score progress bar
+    // Score progress bar (top track) + tetromino progress track below it
     const barY = GRID_OFFSET_Y - 8;
-    this.add.graphics().fillStyle(0x222244, 1).fillRect(GRID_OFFSET_X, barY, COLS * CELL_SIZE, 6);
+    const bgBars = this.add.graphics();
+    bgBars.fillStyle(0x222244, 1).fillRect(GRID_OFFSET_X, barY, COLS * CELL_SIZE, 6);
+    bgBars.fillStyle(0x221100, 1).fillRect(GRID_OFFSET_X, barY + 7, COLS * CELL_SIZE, 4);
     this.progressBar = this.add.graphics();
+
+    // Tetromino-blast progress counter — stacked under LEVEL, visible only when required (level 11+)
+    this.blastLabel = this.add.text(cx + 110, valY + 10, '◆ BLASTS', {
+      fontFamily: '"Courier New", monospace', fontSize: '9px', color: '#ffdd00',
+    }).setOrigin(0.5).setDepth(5).setVisible(false);
+    this.blastVal = this.add.text(cx + 110, valY + 22, '0/0', {
+      fontFamily: '"Courier New", monospace', fontSize: '13px', color: '#ffaa00',
+    }).setOrigin(0.5).setDepth(5).setVisible(false);
 
     // Pause button
     const pauseBtn = this.add.text(GAME_WIDTH - 20, labelY, '| |', {
@@ -543,11 +715,34 @@ export class GameScene extends Phaser.Scene {
       this.movesVal.setColor(gameState.moves <= 3 ? '#ff4444' : gameState.moves <= 6 ? '#ffaa00' : '#ffffff');
     }
     if (this.levelVal) this.levelVal.setText((gameState.level + 1).toString());
+
+    // Blast progress counter (level 11+)
+    const lvlData = gameState.getLevelData();
+    const req = lvlData ? (lvlData.tetrominosRequired || 0) : 0;
+    if (this.blastLabel && this.blastVal) {
+      if (req > 0) {
+        const done = gameState.tetrominosThisLevel;
+        const met  = done >= req;
+        this.blastLabel.setVisible(true);
+        this.blastVal.setText(`${done}/${req}`)
+          .setColor(met ? '#00ff88' : '#ffaa00').setVisible(true);
+      } else {
+        this.blastLabel.setVisible(false);
+        this.blastVal.setVisible(false);
+      }
+    }
+
     if (this.progressBar) {
       const barY = GRID_OFFSET_Y - 8;
       this.progressBar.clear();
       this.progressBar.fillStyle(0x00ff88, 1);
       this.progressBar.fillRect(GRID_OFFSET_X, barY, COLS * CELL_SIZE * gameState.getProgress(), 6);
+
+      // Second bar segment for tetromino progress when required
+      if (req > 0) {
+        this.progressBar.fillStyle(0xffdd00, 1);
+        this.progressBar.fillRect(GRID_OFFSET_X, barY + 7, COLS * CELL_SIZE * gameState.getTetrominoProgress(), 4);
+      }
     }
     this.refreshTapsPips();
   }
