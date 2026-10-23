@@ -1,5 +1,6 @@
 import { SCENES, GAME_WIDTH, GAME_HEIGHT } from '../constants.js';
 import { gameState } from '../GameState.js';
+import { onPlatform } from '../ayvago/platform.js';
 
 export class GameOverScene extends Phaser.Scene {
   constructor() {
@@ -110,12 +111,14 @@ export class GameOverScene extends Phaser.Scene {
       this.time.delayedCall(400, () => this.scene.start(SCENES.MENU));
     });
 
-    // Notify CrazyGames
-    try {
-      if (window.CrazyGames && window.CrazyGames.SDK) {
-        window.CrazyGames.SDK.game.gameplayStop();
-      }
-    } catch (_) {}
+    // Report the run to the platform (no-op when the game runs standalone).
+    const finalScore = gameState.score;
+    const newBest = finalScore > 0 && finalScore >= gameState.highScore;
+    onPlatform((p) => {
+      p.gameplayStop();
+      p.endGame({ score: finalScore, won: isVictory });
+      if (newBest) p.celebrate();
+    });
   }
 
   countUp(textObj, target, duration) {

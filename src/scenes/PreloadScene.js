@@ -1,3 +1,4 @@
+import { onPlatform } from '../ayvago/platform.js';
 import { SCENES, GAME_WIDTH, GAME_HEIGHT, COLORS, COLOR_DARK, COLOR_LIGHT, CELL_SIZE } from '../constants.js';
 
 export class PreloadScene extends Phaser.Scene {
@@ -124,11 +125,7 @@ export class PreloadScene extends Phaser.Scene {
   _complete() {
     this._setProgress(1, 'READY!');
 
-    try {
-      if (window.CrazyGames?.SDK) {
-        window.CrazyGames.SDK.game.loadingStop();
-      }
-    } catch (_) {}
+    onPlatform((p) => p.loadingProgress(1));
 
     this.time.delayedCall(350, () => {
       this.cameras.main.fadeOut(300, 0, 0, 0);
