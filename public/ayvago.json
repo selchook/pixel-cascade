@@ -1,0 +1,57 @@
+{
+  "$schema": "https://ayvago.com/schemas/manifest.v1.json",
+  "id": "pixelcascade",
+  "title": {
+    "en": "Pixel Cascade",
+    "tr": "Pixel Cascade"
+  },
+  "description": {
+    "en": "Place retro sprite-shaped pieces and chain matching colors to trigger cascading explosions.",
+    "tr": "Retro sprite şeklindeki parçaları yerleştir, aynı renkleri zincirleyip art arda patlamalar başlat."
+  },
+  "category": "puzzle",
+  "tags": [
+    "match",
+    "retro",
+    "blocks"
+  ],
+  "entry": "https://pixel-cascade.vercel.app/",
+  "orientation": "portrait",
+  "input": [
+    "touch",
+    "mouse",
+    "keyboard"
+  ],
+  "players": {
+    "min": 1,
+    "max": 1
+  },
+  "scoring": {
+    "metric": "points",
+    "order": "desc",
+    "format": "number",
+    "label": {
+      "en": "Score",
+      "tr": "Puan"
+    },
+    "minDurationMs": 5000,
+    "maxPerSecond": 400,
+    "maxScore": 10000000
+  },
+  "ads": {
+    "rewarded": [
+      "extra_moves",
+      "hint"
+    ],
+    "interstitial": [
+      "level_break"
+    ]
+  },
+  "ageRating": "3+",
+  "sdkVersion": 2,
+  "assets": {
+    "icon": "/ayvago/icon-512.png",
+    "cover": "/ayvago/cover-1920x1080.jpg"
+  },
+  "version": "1.0.0"
+}

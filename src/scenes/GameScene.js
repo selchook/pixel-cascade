@@ -1,3 +1,4 @@
+import { onPlatform } from '../ayvago/platform.js';
 import {
   SCENES, GAME_WIDTH, GAME_HEIGHT,
   COLS, ROWS, CELL_SIZE, GRID_OFFSET_X, GRID_OFFSET_Y,
@@ -64,6 +65,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    onPlatform((p) => p.gameplayStart());
     if (!gameState.moves) {
       gameState.startGame(gameState.savedLevel || 0);
     }

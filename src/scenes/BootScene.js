@@ -97,14 +97,6 @@ export class BootScene extends Phaser.Scene {
   }
 
   async _boot() {
-    try {
-      if (window.CrazyGames?.SDK) {
-        await window.CrazyGames.SDK.init();
-        window.CrazyGames.SDK.game.loadingStart();
-      }
-    } catch (_) {
-      // SDK unavailable — continue without it
-    }
     this.cameras.main.fadeOut(250, 0, 0, 0);
     this.time.delayedCall(260, () => this.scene.start(SCENES.PRELOAD));
   }
